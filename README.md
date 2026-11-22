@@ -10,7 +10,8 @@ their formulas.
 ## Quick start
 
 ```bash
-git clone <this repository> iiwa && cd iiwa
+git clone https://github.com/calvinsuzuki/iiwa-mujoco-viser.git
+cd iiwa-mujoco-viser
 ./run.sh
 ```
 
