@@ -1,7 +1,8 @@
 """UI-independent iiwa14 differential-IK controller (kinematic mode).
 
 MuJoCo is only the engine here: model, forward kinematics and Jacobians. No
-physics is stepped yet, so q is integrated directly. A front end (iiwa_viser.py)
+physics is stepped, so q is integrated directly (iiwa_dynamics adds the physics
+and uses this controller as its reference). A front end (iiwa_viser.py)
 queues commands with `IKController.submit(name, *args)` from any thread and calls
 `step()` from one loop. Nothing here depends on wall-clock time, so the
 controller also runs headless (e.g. to benchmark the methods).
@@ -229,9 +230,9 @@ class IKController:
         q = self.q if q is None else q
         return np.rad2deg(np.minimum(q - self.q_min_hard, self.q_max_hard - q))
 
-    def limit_levels(self):
+    def limit_levels(self, q=None):
         """Per joint: 0 = fine, 1 = near its limit, 2 = at or beyond it."""
-        m = self.joint_margins_deg()
+        m = self.joint_margins_deg(q)
         return np.where(m < LIMIT_WARN_DEG, 2, np.where(m < LIMIT_NEAR_DEG, 1, 0))
 
     # -- commands: thread-safe entry point for any UI ----------------------------

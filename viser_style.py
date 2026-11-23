@@ -76,6 +76,15 @@ body:not(:has(.tabler-icon-cloud-check)) #iiwa-pill::after {{ content: "Offline"
 {folder("iiwa-btn3")} > div:nth-child(-n+3) {{ grid-column: auto; margin-inline: 0 !important; }}
 {folder("iiwa-btn3")} > div:nth-child(-n+3) button {{ width: 100%; padding-inline: 4px; }}
 
+/* iiwa-btn2: the folder's first two buttons share a row. */
+{folder("iiwa-btn2")} {{
+  display: grid !important; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 6px;
+  padding-inline: var(--mantine-spacing-xs);
+}}
+{folder("iiwa-btn2")} > div {{ grid-column: 1 / -1; }}
+{folder("iiwa-btn2")} > div:nth-child(-n+2) {{ grid-column: auto; margin-inline: 0 !important; }}
+{folder("iiwa-btn2")} > div:nth-child(-n+2) button {{ width: 100%; }}
+
 /* iiwa-motion: elbow slider label on its own line, slider full width. */
 {folder("iiwa-motion")} > div:first-child .mantine-Flex-root:has({LABEL_COL}) {{ flex-wrap: wrap; }}
 {folder("iiwa-motion")} > div:first-child {LABEL_COL} {{ width: 100% !important; padding-bottom: 2px; }}
@@ -86,6 +95,9 @@ body:not(:has(.tabler-icon-cloud-check)) #iiwa-pill::after {{ content: "Offline"
   font-size: 0.95em !important; font-weight: 600 !important;
   color: var(--mantine-color-text) !important; letter-spacing: 0 !important;
 }}
+
+/* iiwa-notick: sliders whose range isn't symmetric, so the centre tick isn't 0. */
+{folder("iiwa-notick")} .mantine-Slider-track::after {{ display: none; }}
 
 .iiwa-note {{ font-size: 0.75em; color: var(--mantine-color-dimmed); line-height: 1.35; margin-top: 2px; }}
 @keyframes iiwa-blink {{ 50% {{ opacity: 0.3; }} }}
@@ -148,26 +160,23 @@ def joint_limit_css(levels):
     return f"<style>{''.join(rules)}</style>"
 
 
-def ik_folder_html(methods):
-    """Hover cards with each IK method's formulas (formulas/<key>.svg, made by
-    formulas/make_formulas.py), plus the layout of the IK method folder.
+def formula_cards(items):
+    """Hover cards with formulas/<key>.svg (made by formulas/make_formulas.py) for
+    a folder of buttons, one per (key, label) in items, added first and in order.
 
-    Add it to the IK method folder after its elements: the method buttons (1..n),
-    then the two flexibility checkboxes (n+1, n+2). Card i shows while button i
-    is hovered: `button-wrapper:hover ~ div` reaches this element, a later sibling.
-    """
-    n = len(methods)
+    Add the returned HTML to the same folder, after the buttons. Card i shows while
+    button i is hovered: `button-wrapper:hover ~ div` reaches this element, a
+    later sibling."""
     css, imgs = [], []
-    for i, (key, label) in enumerate(methods):
+    for i, (key, label) in enumerate(items):
         svg = FORMULA_DIR / f"{key}.svg"
         if not svg.exists():
             continue
         data = base64.b64encode(svg.read_bytes()).decode()
-        imgs.append(f'<img class="iiwa-formula iiwa-formula-{i}" alt="{label} formulas" '
+        imgs.append(f'<img class="iiwa-formula iiwa-formula-{key}" alt="{label} formulas" '
                     f'src="data:image/svg+xml;base64,{data}">')
-        css.append(f"div:nth-child({i + 1}):has(> button:hover) ~ div .iiwa-formula-{i}"
+        css.append(f"div:nth-child({i + 1}):has(> button:hover) ~ div .iiwa-formula-{key}"
                    " { opacity: 1; visibility: visible; }")
-    flex = [f"{folder('iiwa-formula')} > div:nth-child({n + k})" for k in (1, 2)]
     return f"""<style>
 .iiwa-formula {{
   position: fixed; top: 60px; right: 350px; z-index: 1000; width: 540px; height: auto;
@@ -178,10 +187,29 @@ def ik_folder_html(methods):
   opacity: 0; visibility: hidden; transition: opacity 120ms ease, visibility 120ms;
 }}
 {chr(10).join(css)}
+</style>{"".join(imgs)}"""
+
+
+def controller_folder_html(controllers):
+    """Formula cards plus the layout of the Controller folder: the controller
+    buttons (1..n), then the bandwidth slider (n+1), whose label gets its own line."""
+    row = f"{folder('iiwa-ctrl')} > div:nth-child({len(controllers) + 1})"
+    return marker("iiwa-ctrl") + marker("iiwa-notick") + formula_cards(controllers) + f"""<style>
+{row} .mantine-Flex-root:has({LABEL_COL}) {{ flex-wrap: wrap; }}
+{row} {LABEL_COL} {{ width: 100% !important; padding-bottom: 2px; }}
+</style>"""
+
+
+def ik_folder_html(methods):
+    """Formula cards plus the layout of the IK method folder: the method buttons
+    (1..n), then the two flexibility checkboxes (n+1, n+2), then this element."""
+    n = len(methods)
+    flex = [f"{folder('iiwa-ik')} > div:nth-child({n + k})" for k in (1, 2)]
+    return marker("iiwa-ik") + formula_cards(methods) + f"""<style>
 /* Reach flexibility | Restrain only Z-axis side by side, labels sized to their text. */
 {flex[0]}, {flex[1]} {{ display: inline-block; vertical-align: top; }}
 {flex[0]} {{ width: 44%; }}
 {flex[1]} {{ width: 56%; }}
 {flex[0]} {LABEL_COL}, {flex[1]} {LABEL_COL} {{ width: auto !important; white-space: nowrap; }}
 {flex[0]} .mantine-Flex-root, {flex[1]} .mantine-Flex-root {{ justify-content: flex-start; }}
-</style>{"".join(imgs)}"""
+</style>"""

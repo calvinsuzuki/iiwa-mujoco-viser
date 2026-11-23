@@ -158,7 +158,8 @@ class Overlays:
         for h in self.null_nodes:
             h.visible = null_space
 
-    def update(self, ctl, pos, J):
+    def update(self, ctl, q, pos, J):
+        """ctl: the IKController (elbow geometry, setpoint); q: the pose drawn."""
         if self.ellipsoid.visible:
             U, S, _ = np.linalg.svd(J[:3])
             if np.linalg.det(U) < 0:              # make U a rotation (right-handed)
@@ -171,7 +172,7 @@ class Overlays:
             self.ellipsoid_axes.points = np.stack([pos - half, pos + half], axis=1).astype(np.float32)
 
         if self.null_frame.visible:
-            s, e, w, u, ref = ctl.elbow_geometry(ctl.q)
+            s, e, w, u, ref = ctl.elbow_geometry(q)
             c = s + ((e - s) @ u) * u             # circle centre on the shoulder-wrist line
             r = max(float(np.linalg.norm(e - c)), 1e-4)
             b = np.cross(u, ref)

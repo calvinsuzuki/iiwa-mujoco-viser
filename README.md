@@ -1,9 +1,11 @@
 # KUKA iiwa14 IK Playground
 
 Interactive, browser-based simulation of a KUKA LBR iiwa 14 for comparing
-inverse-kinematics methods. Drag the tool, and watch four IK methods handle
-singularities, joint limits and the 7th joint's redundancy, side by side with
-their formulas.
+inverse-kinematics methods and joint-torque controllers. Drag the tool, and watch
+four IK methods handle singularities, joint limits and the 7th joint's
+redundancy; then switch to Control mode and see four torque controllers move the
+simulated arm against gravity, a payload and pushes, side by side with their
+formulas.
 
 ![The app during the "Swing around" move](docs/screenshot.png)
 
@@ -56,6 +58,7 @@ Everyone who opens it sees and drives the same robot.
 - **Trail:** the tool path, coloured by IK method.
 
 **Controls panel (right)**
+- **Mode:** IK (kinematic) or Control (torques and physics, see below).
 - **IK method:** hover a button to see the method's formulas, its strong and
   weak points, and its core code.
 - **Reach flexibility** / **Restrain only Z-axis:** let part of the pose give way
@@ -72,6 +75,17 @@ Everyone who opens it sees and drives the same robot.
 
 - **Motion → Elbow angle:** swings the elbow through the null space.
 - **Joints:** read or set each joint directly; a slider blinks red at its limit.
+
+**Control mode** (extra folders):
+- **Controller:** Joint PD, PD + gravity, Computed torque, Task impedance; hover
+  for formulas. **Bandwidth ω** sets all gains (stiffer = faster, more torque).
+- **Physics:** gravity on/off, iiwa 14 torque limits on/off, a payload (steel ball
+  at the flange, unknown to the controller) and a sideways push on the tool.
+- Poses, moves, the IK method and the joint sliders now set the *reference* the
+  controller tracks; a joint slider is a step input.
+- Status shows the tool error, the joint error to the IK reference and the most
+  loaded joint; the plots show joint torques (% of the datasheet maximum, live
+  N·m under it) and the tool error.
 
 **Status and plots (bottom left):** the state ("Moving", "At target", "Can't
 reach target", plus any joint at a limit), tracking errors, speed and σ<sub>min</sub>.
@@ -94,11 +108,30 @@ The velocity scaling QP is the formulation used by Drake's
 `DifferentialInverseKinematics`. The details are in the docstrings of
 `ik_solvers.py` and in the hover cards.
 
+## The four torque controllers
+
+In Control mode MuJoCo simulates the dynamics `M(q)q̈ + C(q,q̇)q̇ + g(q) = τ` at
+1 kHz. The chain is target → IK method → reference `q_r, q̇_r, q̈_r` → controller →
+`τ` → physics, so the IK method still shapes the motion and the controller decides
+how well the real arm follows. All four use the controller's own model, which
+doesn't know the payload.
+
+| Controller | Law | Typical failure |
+|---|---|---|
+| Joint PD | `τ = Kp e + Kd ė` | sags under gravity |
+| PD + gravity | `τ = Kp e + Kd ė + ĝ(q)` | sags with a payload, lags in fast moves |
+| Computed torque | `τ = M̂(q̈_r + ω²e + 2ωė) + Ĉq̇ + ĝ` | needs the full model, big torques |
+| Task impedance | `τ = JᵀΛ(ω²e_x − 2ωJq̇) + ĝ + null space` | no IK, but ignores joint limits |
+
+Torques are clipped to the iiwa 14 datasheet maxima (320, 320, 176, 176, 110,
+40, 40 N·m) unless Torque limits is off.
+
 ## Project structure
 
 | File | Contents |
 |---|---|
-| `iiwa_core.py` | controller: target shaping, method dispatch, moves, status. No UI and no wall-clock time, so it also runs headless |
+| `iiwa_core.py` | IK controller: target shaping, method dispatch, moves, status. No UI and no wall-clock time, so it also runs headless |
+| `iiwa_dynamics.py` | Control mode: plant, torque controllers, payload, push |
 | `ik_solvers.py` | the four IK methods and the joint-limit box |
 | `iiwa_viser.py` | the app: Viser server, control panel, update loop |
 | `viser_scene.py` | 3-D scene: studio, robot meshes, overlays |
@@ -108,9 +141,9 @@ The velocity scaling QP is the formulation used by Drake's
 | `dev_server.py` | development runner that restarts the app when a file changes |
 | `run.sh` | setup and start |
 
-**Libraries:** MuJoCo is the robot model and kinematics engine (forward
-kinematics, Jacobians). No physics is stepped yet: the simulation is
-kinematic. [Viser](https://viser.studio) is the browser 3-D viewer and GUI.
+**Libraries:** MuJoCo is the robot model and physics engine: forward
+kinematics and Jacobians in IK mode; dynamics, mass matrix and gravity torques in
+Control mode. [Viser](https://viser.studio) is the browser 3-D viewer and GUI.
 OSQP solves the QPs.
 
 **Extending:**
@@ -118,6 +151,9 @@ OSQP solves the QPs.
   button appears automatically.
 - New IK method: a solver in `ik_solvers.py`, a `METHODS` entry, and a branch
   in `IKController._joint_velocity`.
+- New controller: a function `tau = f(model, q, qd, ref, gains)` and a
+  `CONTROLLERS` entry in `iiwa_dynamics.py`, plus its card in
+  `formulas/make_formulas.py`.
 
 ## Development
 

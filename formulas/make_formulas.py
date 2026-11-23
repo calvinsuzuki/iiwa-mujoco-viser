@@ -1,4 +1,4 @@
-"""Render the IK method formulas (LaTeX) to SVGs for the hover previews.
+"""Render the IK method and torque controller formulas (LaTeX) to SVGs for the hover previews.
 
 Run:  .venv/bin/python formulas/make_formulas.py
 Needs pdflatex (standalone, amsmath, xcolor) and pdftocairo (poppler-utils).
@@ -129,6 +129,68 @@ $w = 0.01$, $w_s = 0.5$. Same limit box as constrained least squares.}
 """ + SERVO,
 }
 
+# Shared footnote of the torque controllers: plant, reference and gains.
+PLANT = r"""
+\vspace{4pt}
+{\color{note}\small
+Plant: $M(q)\ddot q + C(q,\qd)\qd + g(q) = \tau$, simulated at 1\,kHz.
+$q_r, \qd_r, \ddot q_r$: reference from the IK method, $e = q_r - q$.
+$\omega$: bandwidth slider. $\hat M, \hat C, \hat g$: the controller's model (it doesn't know the payload).}
+"""
+
+FORMULAS.update({
+    "pd": r"""
+{\color{accent}\large\textbf{Joint PD}}\par\vspace{4pt}
+\[
+\tau = K_p\, e + K_d\, \dot e,\qquad
+K_p = \omega^2 \operatorname{diag}\hat M(q_{home}),\quad K_d = 2\omega \operatorname{diag}\hat M(q_{home})
+\]
+A spring and a damper on every joint. No model at all.\par\vspace{2pt}
+{\color{note}\small At rest $K_p e = g(q)$: the arm sags until the springs carry its weight,
+$e_{ss} = K_p^{-1} g(q)$.}
+""" + PLANT,
+
+    "pd-gravity": r"""
+{\color{accent}\large\textbf{PD + gravity compensation}}\par\vspace{4pt}
+\[
+\tau = K_p\, e + K_d\, \dot e + \hat g(q)
+\]
+The model cancels the weight, the PD only has to move the arm.\par\vspace{2pt}
+{\color{note}\small Exact at rest if $\hat g = g$. A payload makes $\hat g \ne g$: sag again.
+While moving, $M\ddot q$ and $C\qd$ are left to the PD: the arm lags.}
+""" + PLANT,
+
+    "computed-torque": r"""
+{\color{accent}\large\textbf{Computed torque}}\par\vspace{4pt}
+\[
+\tau = \hat M(q)\left(\ddot q_r + \omega^2 e + 2\omega\, \dot e\right) + \hat C(q,\qd)\qd + \hat g(q)
+\]
+\[
+\hat M = M,\ \hat C = C,\ \hat g = g \;\Rightarrow\; \ddot e + 2\omega\, \dot e + \omega^2 e = 0
+\]
+Inverse dynamics: pick the acceleration, compute the torque that produces it. Every
+joint behaves like the same critically damped system, in any pose.\par\vspace{2pt}
+{\color{note}\small Model errors (payload) enter as a disturbance $\hat M^{-1}(g - \hat g)$.}
+""" + PLANT,
+
+    "impedance": r"""
+{\color{accent}\large\textbf{Task-space impedance}}\par\vspace{4pt}
+\[
+\tau = J^\top \Lambda \left(\omega^2 e_x - 2\omega\, J\qd\right) + \hat g(q)
++ \left(I - J^\top \bar J^\top\right)\tau_{posture}
+\]
+\[
+\Lambda = \left(J \hat M^{-1} J^\top\right)^{-1},\qquad \bar J = \hat M^{-1} J^\top \Lambda,\qquad
+e_x = \begin{bmatrix} p_d - p \\ \log(R_d R^\top)^\vee \end{bmatrix}
+\]
+A spring and damper between tool and target, through the tool's apparent inertia
+$\Lambda$. No IK: the target pulls the tool directly. $\tau_{posture}$ holds the
+elbow near the IK pose without moving the tool.\par\vspace{2pt}
+{\color{note}\small $\Lambda \to \infty$ at singularities (regularised here).
+Joint limits are not handled: the arm runs into its stops.}
+""" + PLANT,
+})
+
 
 # Strong / weak points, shown between the formulas and the code.
 PROS_CONS = {
@@ -171,6 +233,48 @@ PROS_CONS = {
 }{
 \item Stops dead ($\alpha \to 0$) at a limit instead of finding a way around
 \item Most expensive: 8-variable QP with weights to tune
+}
+""",
+    "pd": r"""
+\proscons{
+\item No model needed
+\item Two gains per joint, cheapest controller
+\item Robust: stable for any positive gains
+}{
+\item Sags under gravity
+\item Lags in fast moves, pose-dependent response
+}
+""",
+    "pd-gravity": r"""
+\proscons{
+\item No error at rest, with a correct model
+\item Only $g(q)$ needed: cheap and easy to identify
+\item The standard industrial joint controller
+}{
+\item Unmodelled payload: sags again
+\item Inertia and Coriolis forces left to the PD: lags in fast moves
+}
+""",
+    "computed-torque": r"""
+\proscons{
+\item Same response on every joint, in every pose
+\item Tracks fast moves (feedforward $\ddot q_r$)
+\item Gains have a meaning: bandwidth $\omega$
+}{
+\item Needs the full model $M, C, g$
+\item Model errors are amplified by $\hat M$
+\item Large torques at high accelerations
+}
+""",
+    "impedance": r"""
+\proscons{
+\item No IK: works straight on the tool pose
+\item Compliant: a push moves the tool, it springs back
+\item Basis of safe human-robot contact
+}{
+\item Needs $M$ and $J$; $\Lambda$ explodes at singularities
+\item Joint limits not handled
+\item Elbow only held loosely in the null space
 }
 """,
 }
@@ -224,6 +328,36 @@ u = np.r_[np.zeros(len(Vh)), hi, 1.0]
 qd, alpha = np.split(solve_qp(P, c, A, l, u), [7])
 \end{lstlisting}
 """,
+    "pd": r"""
+\begin{lstlisting}
+e, ed = q_r - q, qd_r - qd
+tau = Kp * e + Kd * ed
+\end{lstlisting}
+""",
+    "pd-gravity": r"""
+\begin{lstlisting}
+mujoco.mj_rne(m, d, 0, g)    # q' = 0: gravity torque only
+tau = Kp * (q_r - q) + Kd * (qd_r - qd) + g
+\end{lstlisting}
+""",
+    "computed-torque": r"""
+\begin{lstlisting}
+a = qdd_r + w**2 * (q_r - q) + 2*w * (qd_r - qd)
+mujoco.mj_fullM(m, d, M)             # mass matrix
+mujoco.mj_rne(m, d, 0, bias)         # C qd + g
+tau = M @ a + bias
+\end{lstlisting}
+""",
+    "impedance": r"""
+\begin{lstlisting}
+e = pose_error(pos, quat, pos_d, quat_d)
+Minv_JT = np.linalg.solve(M, J.T)
+Lam = np.linalg.inv(J @ Minv_JT + eps * np.eye(6))
+F = Lam @ (w**2 * e - 2*w * J @ qd)      # tool wrench
+N = np.eye(7) - J.T @ Lam @ Minv_JT.T    # null space
+tau = J.T @ F + N @ tau_posture + g
+\end{lstlisting}
+""",
 }
 
 
@@ -238,6 +372,9 @@ def render(key, body, out_dir=HERE):
 
 
 if __name__ == "__main__":
+    import sys
     for key, body in FORMULAS.items():
+        if len(sys.argv) > 1 and key not in sys.argv[1:]:   # optional: only these keys
+            continue
         render(key, body)
         print("wrote", HERE / f"{key}.svg")
